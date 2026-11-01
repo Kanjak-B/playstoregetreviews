@@ -1,4 +1,4 @@
-"""CLI de collecte, migration et export."""
+"""CLI de collecte, migration, export et analyse IA."""
 import argparse
 import csv
 import json
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import requests
 import sqlite3
 from sqlalchemy.exc import SQLAlchemyError
-from .config import AppConfig, load_settings
+from .config import load_settings
 from .collector.google_play import fetch_reviews
 from .database.repository import Repository, migrate_legacy
 
@@ -19,7 +19,7 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         return json.dumps({"time": datetime.now(timezone.utc).isoformat(), "level": record.levelname,
                            "event": record.getMessage(), **{k: getattr(record, k) for k in
-                           ("package", "attempt", "counts") if hasattr(record, k)}})
+                           ("package", "attempt", "counts", "analysis_id") if hasattr(record, k)}})
 
 
 def export_reviews(repository: Repository, directory: Path) -> int:
@@ -47,10 +47,11 @@ def notify(review: dict, package: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['collect', 'export', 'migrate'])
+    parser.add_argument('command', choices=['collect', 'export', 'migrate', 'analyze', 'analysis-show', 'analysis-recover'])
     parser.add_argument('--config')
     parser.add_argument('--source', type=Path)
-    parser.add_argument('--package', help='Application propriétaire de la base historique')
+    parser.add_argument('--analysis-id', type=int)
+    parser.add_argument('--package', help='Application à analyser ou propriétaire de la base historique')
     args = parser.parse_args(argv)
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
@@ -70,6 +71,43 @@ def main(argv: list[str] | None = None) -> int:
             logger.info('migration_completed')
             return 0
         repository = Repository(settings.db_path)
+        if args.command in {'analyze', 'analysis-show', 'analysis-recover'}:
+            from .analysis.repository import AnalysisRepository, AnalysisBusy
+            from .analysis.providers.openai import OpenAIProvider
+            from .analysis.service import analyze_app
+            from dataclasses import asdict
+            analyses = AnalysisRepository(repository)
+            if args.command != 'analyze':
+                if args.analysis_id is None:
+                    parser.error('--analysis-id requis')
+                if args.command == 'analysis-show':
+                    print(json.dumps(analyses.result(args.analysis_id), ensure_ascii=False, indent=2))
+                else:
+                    analyses.recover(args.analysis_id)
+                    logger.info('analysis_recovered')
+                return 0
+            provider = OpenAIProvider(settings.analysis)
+            remaining = settings.analysis.max_batches_per_run
+            failed = False
+            apps = [app for app in settings.apps if not args.package or app.package_name == args.package]
+            if not apps:
+                raise ValueError('Application absente de la configuration')
+            try:
+                for app in apps:
+                    if remaining == 0:
+                        break
+                    try:
+                        stats = analyze_app(analyses, provider, app,
+                                            settings.analysis.model_copy(update={'max_batches_per_run': remaining}))
+                        remaining -= stats.calls
+                        failed = failed or bool(stats.failed)
+                        logger.info('analysis_run_completed', extra={'package': app.package_name, 'counts': asdict(stats)})
+                    except AnalysisBusy:
+                        failed = True
+                        logger.error('analysis_busy', extra={'package': app.package_name})
+            finally:
+                provider.close()
+            return int(failed)
         if args.command == 'export':
             export_reviews(repository, settings.export_dir)
             logger.info('export_completed')

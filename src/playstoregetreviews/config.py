@@ -2,7 +2,7 @@
 import json
 import os
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AppConfig(BaseModel):
@@ -23,8 +23,27 @@ class AppConfig(BaseModel):
         return value.strip()
 
 
+class AnalysisConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    model: str = Field(default="gpt-4o-mini", min_length=1, max_length=200)
+    max_reviews_per_batch: int = Field(default=40, ge=1, le=100)
+    max_batches_per_run: int = Field(default=5, ge=1, le=100)
+    max_input_chars: int = Field(default=24000, ge=4000, le=200000)
+    max_output_tokens: int = Field(default=3000, ge=256, le=16000)
+    timeout_seconds: float = Field(default=60, gt=0, le=300)
+    input_cost_per_million: float | None = Field(default=None, ge=0)
+    output_cost_per_million: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def complete_prices(self):
+        if (self.input_cost_per_million is None) != (self.output_cost_per_million is None):
+            raise ValueError("Fournir les deux tarifs ou aucun")
+        return self
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     db_path: Path = Path("reviews.db")
     export_dir: Path = Path("exports")
     apps: list[AppConfig] = Field(default_factory=lambda: [AppConfig()], min_length=1)

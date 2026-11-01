@@ -11,5 +11,13 @@
       "max_score": 2,
       "max_fetch": 500
     }
-  ]
+  ],
+  "analysis": {
+    "model": "gpt-4o-mini",
+    "max_reviews_per_batch": 40,
+    "max_batches_per_run": 5,
+    "max_input_chars": 24000,
+    "max_output_tokens": 3000,
+    "timeout_seconds": 60
+  }
 }

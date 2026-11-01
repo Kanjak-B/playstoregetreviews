@@ -15,6 +15,7 @@ class Application(Base):
     description: Mapped[str]
     language: Mapped[str]
     country: Mapped[str]
+    recipient_email: Mapped[str | None]
     created_at: Mapped[str]
     updated_at: Mapped[str]
 
@@ -57,8 +58,49 @@ class AnalysisReview(Base):
     analysis_id: Mapped[int] = mapped_column(ForeignKey('analyses.id'), primary_key=True)
     review_id: Mapped[int] = mapped_column(ForeignKey('reviews.id'), primary_key=True)
     content_hash: Mapped[str]
+    review_date: Mapped[str | None]
 
 
 # Une application ne doit pas déclencher deux appels concurrents.
 Index('one_running_analysis_per_app', Analysis.application_id, unique=True,
       sqlite_where=text("status = 'running'"))
+
+
+class Report(Base):
+    __tablename__ = 'reports'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey('applications.id'))
+    fingerprint: Mapped[str] = mapped_column(unique=True)
+    document_json: Mapped[str]
+    created_at: Mapped[str]
+    rendered_at: Mapped[str | None]
+
+
+class ReportAnalysis(Base):
+    __tablename__ = 'report_analyses'
+    analysis_id: Mapped[int] = mapped_column(ForeignKey('analyses.id'), primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey('reports.id'))
+
+
+class EmailDelivery(Base):
+    __tablename__ = 'email_deliveries'
+    __table_args__ = (UniqueConstraint('report_id', 'recipient'),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey('reports.id'))
+    recipient: Mapped[str]
+    status: Mapped[str]
+    message_id: Mapped[str] = mapped_column(unique=True)
+    attempts: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[str]
+    updated_at: Mapped[str]
+    sent_at: Mapped[str | None]
+    error_code: Mapped[str | None]
+
+
+class WorkflowState(Base):
+    __tablename__ = 'workflow_states'
+    package_name: Mapped[str] = mapped_column(primary_key=True)
+    status: Mapped[str]
+    started_at: Mapped[str]
+    completed_at: Mapped[str | None]
+    last_success_at: Mapped[str | None]

@@ -9,7 +9,10 @@
       "language": "fr",
       "country": "cd",
       "max_score": 2,
-      "max_fetch": 500
+      "max_fetch": 500,
+      "recipient_email": null,
+      "recipient_authorized": false,
+      "interval_minutes": 1440
     }
   ],
   "analysis": {
@@ -19,5 +22,17 @@
     "max_input_chars": 24000,
     "max_output_tokens": 3000,
     "timeout_seconds": 60
+  },
+  "report_dir": "reports",
+  "email": {
+    "enabled": false,
+    "host": null,
+    "port": 587,
+    "security": "starttls",
+    "from_address": null,
+    "auth_required": true,
+    "timeout_seconds": 30,
+    "max_attempts": 3,
+    "max_deliveries_per_run": 10
   }
 }

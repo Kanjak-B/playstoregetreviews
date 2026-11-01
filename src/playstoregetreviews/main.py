@@ -19,7 +19,7 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         return json.dumps({"time": datetime.now(timezone.utc).isoformat(), "level": record.levelname,
                            "event": record.getMessage(), **{k: getattr(record, k) for k in
-                           ("package", "attempt", "counts", "analysis_id") if hasattr(record, k)}})
+                           ("package", "attempt", "counts", "analysis_id", "report_id", "delivery_id") if hasattr(record, k)}})
 
 
 def export_reviews(repository: Repository, directory: Path) -> int:
@@ -47,10 +47,14 @@ def notify(review: dict, package: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['collect', 'export', 'migrate', 'analyze', 'analysis-show', 'analysis-recover'])
+    parser.add_argument('command', choices=['collect', 'export', 'migrate', 'analyze', 'analysis-show', 'analysis-recover', 'report', 'email-preview', 'send-email', 'email-status', 'email-resolve', 'run', 'run-recover'])
     parser.add_argument('--config')
     parser.add_argument('--source', type=Path)
     parser.add_argument('--analysis-id', type=int)
+    parser.add_argument('--report-id', type=int)
+    parser.add_argument('--delivery-id', type=int)
+    parser.add_argument('--outcome', choices=['sent', 'retry'])
+    parser.add_argument('--force', action='store_true', help='Ignorer la cadence du pipeline, sans contourner les réservations')
     parser.add_argument('--package', help='Application à analyser ou propriétaire de la base historique')
     args = parser.parse_args(argv)
     handler = logging.StreamHandler()
@@ -71,6 +75,14 @@ def main(argv: list[str] | None = None) -> int:
             logger.info('migration_completed')
             return 0
         repository = Repository(settings.db_path)
+        if args.command == 'run':
+            from .workflow import run_pipeline
+            return int(not run_pipeline(repository, settings, args.package, args.force,
+                                        fetch=fetch_reviews, notify=notify))
+        if args.command in {'report', 'email-preview', 'send-email', 'email-status', 'email-resolve', 'run-recover'}:
+            from .commands import execute
+            return execute(args.command, repository, settings, package=args.package,
+                           report_id=args.report_id, delivery_id=args.delivery_id, outcome=args.outcome)
         if args.command in {'analyze', 'analysis-show', 'analysis-recover'}:
             from .analysis.repository import AnalysisRepository, AnalysisBusy
             from .analysis.providers.openai import OpenAIProvider

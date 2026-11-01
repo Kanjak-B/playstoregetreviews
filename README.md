@@ -1,6 +1,6 @@
-# PlayStoreGetReviews — V2, phases 1 et 2
+# PlayStoreGetReviews — V2.0
 
-Collecte des avis publics Google Play, stockage SQLite par application et export CSV/JSON. Cette branche réalise les **phases 1 et 2** de [doc/specifications.md](doc/specifications.md). L'analyse IA OpenAI est disponible. Les rapports HTML, les emails et Cron appartiennent aux phases suivantes.
+Collecte des avis publics Google Play, stockage SQLite par application et export CSV/JSON. Cette version réalise les **cinq phases** de [doc/specifications.md](doc/specifications.md). Analyse IA OpenAI, rapports JSON/HTML, emails SMTP et pipeline planifiable avec Cron sont disponibles. Les emails sont désactivés par défaut.
 
 ## Installation et tests
 
@@ -90,7 +90,7 @@ Il n'y a pas de reprise automatique d'appel LLM payant. Après l'échec d'un lot
 
 ### Historique et reprise
 
-Les tables `analyses` et `analysis_reviews` sont ajoutées à la base V2 existante sans modifier les avis. L'historique conserve statut, modèle/fournisseur, version du prompt, dates, résultat validé, tokens, coût estimé et hash de chaque version d'avis. Les résultats restent locaux dans SQLite ; la génération de fichiers de rapports arrivera en phase 3. L'identifiant de l'analyse apparaît dans les logs JSON.
+Les tables `analyses` et `analysis_reviews` sont ajoutées à la base V2 existante sans modifier les avis. L'historique conserve statut, modèle/fournisseur, version du prompt, dates, résultat validé, tokens, coût estimé et hash de chaque version d'avis. Les résultats restent locaux dans SQLite ; `report` génère les fichiers JSON/HTML (voir le guide d’exploitation). L'identifiant de l'analyse apparaît dans les logs JSON.
 
 ```sh
 playstoregetreviews analysis-show --config config.local.json --analysis-id 1
@@ -109,3 +109,17 @@ La réservation devient `failed`, avec consommation inconnue ; les avis restent 
 ### Validation de la phase 2
 
 `python -m pytest` exécute les tests de phases 1 et 2 avec des données synthétiques. Ils couvrent l'incrémentalité, la migration du schéma, les versions modifiées pendant l'appel, la réservation, les lots, la préparation des données, les réponses invalides/refusées/tronquées, les références et comptes, la consommation même en cas d'échec, les commandes et le véritable SDK avec un transport HTTP simulé. Aucun test n'envoie de données à OpenAI. Une validation réelle nécessite une clé, un accès au modèle et l'autorisation réseau ; elle n'a pas encore été effectuée dans cet environnement.
+
+
+## Phases 3 à 5 — Rapports, emails et automatisation
+
+```sh
+playstoregetreviews report --config config.local.json
+playstoregetreviews email-preview --config config.local.json --report-id 1
+# Après configuration SMTP et autorisation explicite du destinataire :
+playstoregetreviews send-email --config config.local.json --report-id 1
+# Cycle complet respectant la cadence de chaque application :
+playstoregetreviews run --config config.local.json
+```
+
+Consulter le **[guide d’exploitation](doc/operations.md)** pour les paramètres SMTP, l’historique, les reprises sans renvoi automatique d’un email incertain, la migration et l’installation Cron. Les exemples de déploiement sont dans [`deploy/`](deploy/). La CI exécute les tests sur Python 3.11–3.13 ; aucun secret ni service externe n’est requis pour les tests. Docker reste facultatif et n’est pas ajouté.

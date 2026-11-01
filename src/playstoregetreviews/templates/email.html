@@ -1,0 +1,8 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Analyse des avis</title></head>
+<body style="font:16px/1.6 Arial,sans-serif;color:#182a36;max-width:720px;margin:auto;padding:24px">
+<h1>{{ report.app_name }} — synthèse des avis</h1><p>{{ report.reviews_analyzed }} avis analysés · {{ report.generated_at }} (UTC)</p>
+{% for summary in report.summaries[:3] %}<p>{{ summary[:1000] }}</p>{% endfor %}
+<h2>Priorités</h2>{% for issue in report.issues[:5] %}<h3>{{ issue.title }}</h3><p>{{ issue.priority }} · {{ issue.review_count }} avis</p>
+<ul>{% for recommendation in issue.recommendations[:3] %}<li>{{ recommendation }}</li>{% endfor %}</ul>{% else %}<p>Consulter la synthèse et les limites.</p>{% endfor %}
+<p>Le rapport complet en HTML et JSON est joint. Les hypothèses techniques doivent être vérifiées ; les limites de l'analyse figurent dans le rapport.</p>
+<p>Rapport privé, transmis au destinataire autorisé dans la configuration.</p></body></html>

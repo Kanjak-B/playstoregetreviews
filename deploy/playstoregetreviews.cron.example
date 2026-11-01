@@ -1,0 +1,5 @@
+# Adapter les chemins absolus avant installation avec crontab -e.
+# Le fichier privé exporte PLAYSTORE_BIN, PLAYSTORE_CONFIG et les identifiants.
+# Le wrapper définit umask 077 ; protéger aussi le dossier du journal (mode 700).
+# Vérification toutes les 15 minutes ; chaque app respecte interval_minutes.
+*/15 * * * * PLAYSTORE_ENV_FILE=/etc/playstoregetreviews/runtime.env /opt/playstoregetreviews/deploy/run-scheduled.sh >> /var/lib/playstoregetreviews/workflow.log 2>&1

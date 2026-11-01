@@ -1,8 +1,16 @@
 """Configuration explicite, validée avant tout accès réseau ou disque."""
 import json
 import os
+import re
+from typing import Literal
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def validate_email(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,63}", value):
+        raise ValueError("Adresse email simple invalide")
+    return value.lower()
 
 
 class AppConfig(BaseModel):
@@ -14,6 +22,20 @@ class AppConfig(BaseModel):
     country: str = "cd"
     max_score: int = Field(default=2, ge=1, le=5)
     max_fetch: int = Field(default=500, ge=1, le=100000)
+    recipient_email: str | None = None
+    recipient_authorized: bool = False
+    interval_minutes: int = Field(default=1440, ge=1, le=525600)
+
+    @field_validator('recipient_email')
+    @classmethod
+    def valid_recipient(cls, value: str | None) -> str | None:
+        return validate_email(value) if value is not None else None
+
+    @model_validator(mode='after')
+    def authorized_recipient(self):
+        if self.recipient_authorized and not self.recipient_email:
+            raise ValueError('Destinataire autorisé manquant')
+        return self
 
     @field_validator("package_name", "language", "country")
     @classmethod
@@ -41,8 +63,41 @@ class AnalysisConfig(BaseModel):
         return self
 
 
+class EmailConfig(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    enabled: bool = False
+    host: str | None = None
+    port: int = Field(default=587, ge=1, le=65535)
+    security: Literal['starttls', 'ssl'] = 'starttls'
+    from_address: str | None = None
+    auth_required: bool = True
+    timeout_seconds: float = Field(default=30, gt=0, le=120)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    max_deliveries_per_run: int = Field(default=10, ge=1, le=100)
+
+    @field_validator('from_address')
+    @classmethod
+    def valid_sender(cls, value: str | None) -> str | None:
+        return validate_email(value) if value is not None else None
+
+    @field_validator('host')
+    @classmethod
+    def valid_host(cls, value: str | None) -> str | None:
+        if value is not None and (not value or any(c.isspace() for c in value) or '/' in value):
+            raise ValueError('Hôte SMTP invalide')
+        return value
+
+    @model_validator(mode='after')
+    def configured(self):
+        if self.enabled and (not self.host or not self.from_address):
+            raise ValueError('SMTP activé : hôte et expéditeur requis')
+        return self
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    email: EmailConfig = Field(default_factory=EmailConfig)
+    report_dir: Path = Path('reports')
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     db_path: Path = Path("reviews.db")
     export_dir: Path = Path("exports")

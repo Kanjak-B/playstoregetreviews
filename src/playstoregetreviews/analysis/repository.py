@@ -51,7 +51,8 @@ class AnalysisRepository:
             session.flush()
             for source in sources:
                 session.add(AnalysisReview(analysis_id=analysis.id, review_id=source.id,
-                                           content_hash=source.content_hash))
+                                           content_hash=source.content_hash,
+                                           review_date=session.get(Review, source.id).review_date))
             analysis_id = analysis.id
             session.commit()
             return analysis_id

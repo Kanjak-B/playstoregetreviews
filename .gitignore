@@ -9,10 +9,18 @@ __pycache__/
 *.db
 *.db-*
 *.sqlite*
-data/
-exports/
-reports/
+/data/
+/exports/
+/reports/
 build/
 dist/
 
 config.local.json
+
+*.eml
+*.log
+*.local.json
+
+**/report-[0-9]*.json
+**/report-[0-9]*.html
+**/email-preview-*

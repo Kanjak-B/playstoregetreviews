@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session
 from .models import Application, Base, Review
 from ..config import AppConfig
@@ -32,7 +32,7 @@ def normalized(review: dict[str, Any]) -> dict[str, Any]:
 
 class Repository:
     def __init__(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.engine = create_engine(f"sqlite:///{path}")
         if inspect(self.engine).has_table("reviews"):
             columns = {c['name'] for c in inspect(self.engine).get_columns("reviews")}
@@ -40,6 +40,16 @@ class Repository:
                 self.engine.dispose()
                 raise ValueError("Base historique : utiliser migrate avec --package explicite")
         Base.metadata.create_all(self.engine)
+        # Migration additive de V2 phase 2 : les anciennes dates restent inconnues.
+        with self.engine.begin() as connection:
+            connection.execute(text('BEGIN IMMEDIATE'))
+            columns = {c['name'] for c in inspect(connection).get_columns('analysis_reviews')}
+            if 'review_date' not in columns:
+                connection.execute(text('ALTER TABLE analysis_reviews ADD COLUMN review_date TEXT'))
+            app_columns = {c['name'] for c in inspect(connection).get_columns('applications')}
+            if 'recipient_email' not in app_columns:
+                connection.execute(text('ALTER TABLE applications ADD COLUMN recipient_email TEXT'))
+        path.chmod(0o600)
 
     def close(self) -> None:
         self.engine.dispose()
@@ -52,7 +62,7 @@ class Repository:
             if application is None:
                 application = Application(package_name=app.package_name, created_at=timestamp)
                 session.add(application)
-            for key in ("name", "description", "language", "country"):
+            for key in ("name", "description", "language", "country", "recipient_email"):
                 setattr(application, key, getattr(app, key))
             application.updated_at = timestamp
             session.flush()

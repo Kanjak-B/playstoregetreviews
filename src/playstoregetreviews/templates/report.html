@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rapport — {{ report.app_name }}</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#182a36;background:#f7fafc}header,section{background:white;padding:24px;margin:20px 0;border:1px solid #dce4eb;border-radius:12px}h1,h2,h3{line-height:1.25}small,.muted{color:#536776}.priority{font-weight:bold}li{margin:8px 0}code{overflow-wrap:anywhere}</style></head>
+<body><header><p>PLAYSTOREGETREVIEWS · ANALYSE DES AVIS</p><h1>{{ report.app_name }}</h1>
+<p><code>{{ report.package_name }}</code> · {{ report.reviews_analyzed }} avis étudiés</p>
+<p>Rapport du {{ report.generated_at }} (UTC)</p>
+<p>Période des avis : {{ report.review_period_start or 'inconnue' }} — {{ report.review_period_end or 'inconnue' }}</p>
+<small>Analyses : {{ report.analysis_period_start }} — {{ report.analysis_period_end }}</small></header>
+<section><h2>Synthèse</h2>{% for summary in report.summaries %}<p>{{ summary }}</p>{% endfor %}</section>
+<section><h2>Problèmes et recommandations prioritaires</h2>
+{% for issue in report.issues %}<article><h3>{{ loop.index }}. {{ issue.title }}</h3>
+<p class="priority">{{ issue.priority }} · {{ issue.category }} · {{ issue.review_count }} avis · confiance {{ '%.0f'|format(issue.confidence * 100) }} %</p>
+<ul>{% for recommendation in issue.recommendations %}<li>{{ recommendation }}</li>{% endfor %}</ul>
+<details><summary>Références des avis sources</summary><ul>{% for reference in issue.review_ids %}<li><code>{{ reference }}</code></li>{% endfor %}</ul></details></article>
+{% else %}<p>Aucun problème structuré identifié dans ces lots. Consulter la synthèse et les limites.</p>{% endfor %}</section>
+<section><h2>Limites et traçabilité</h2><ul>{% for limitation in report.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>
+<p>Les constats sont issus d'avis utilisateurs et d'une analyse automatisée. Les causes techniques restent à vérifier.</p>
+<p>Modèles : {{ report.models|join(', ') }}. Lots : {{ report.analysis_ids|join(', ') }}.</p>
+<p>Tokens d'entrée : {{ report.input_tokens if report.input_tokens is not none else 'inconnus' }} ; sortie : {{ report.output_tokens if report.output_tokens is not none else 'inconnus' }}.</p>
+<p>Coût estimé (USD) : {{ report.estimated_cost if report.estimated_cost is not none else 'inconnu' }}.</p></section>
+<footer>Rapport privé — conserver avec les versions sources dans la base SQLite.</footer></body></html>

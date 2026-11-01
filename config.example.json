@@ -1,0 +1,15 @@
+{
+  "db_path": "data/reviews.db",
+  "export_dir": "exports",
+  "apps": [
+    {
+      "package_name": "com.visa.cemea.visapay",
+      "name": "Visa Pay",
+      "description": "Application à suivre",
+      "language": "fr",
+      "country": "cd",
+      "max_score": 2,
+      "max_fetch": 500
+    }
+  ]
+}

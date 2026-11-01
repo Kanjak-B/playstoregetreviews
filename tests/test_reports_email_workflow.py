@@ -4,6 +4,7 @@ from email.parser import BytesParser
 from pathlib import Path
 from unittest.mock import Mock
 import json
+import os
 import smtplib
 import ssl
 import pytest
@@ -77,8 +78,9 @@ def test_report_files_are_valid_escaped_private_and_repeatable(store, app, tmp_p
     assert '<script>alert' not in html and '&lt;script&gt;' in html
     assert '<img src=x' not in html and '&lt;img' in html
     assert '&lt;b&gt;Test&lt;/b&gt;' in html
-    assert paths[0].stat().st_mode & 0o777 == 0o600
-    assert paths[1].stat().st_mode & 0o777 == 0o600
+    if os.name != 'nt':
+        assert paths[0].stat().st_mode & 0o777 == 0o600
+        assert paths[1].stat().st_mode & 0o777 == 0o600
     assert reports.create(app) is None
     original = paths[0].read_bytes()
     generate_report(reports, rid, tmp_path/'reports')
@@ -163,7 +165,8 @@ def test_preview_builds_multipart_without_reserving_or_sending(store, app, email
     assert message.get_body(preferencelist=('html',)) is not None
     assert {part.get_filename() for part in message.iter_attachments()} == {'rapport.json', 'rapport.html'}
     assert DeliveryRepository(store).status(rid, app.recipient_email) is None
-    assert paths[0].stat().st_mode & 0o777 == 0o600
+    if os.name != 'nt':
+        assert paths[0].stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.parametrize('changes', [dict(recipient_authorized=False), dict(package_name='wrong.app')])
@@ -476,6 +479,7 @@ def test_pipeline_cli_runs_reports_with_email_disabled(store, app, tmp_path, mon
     assert provider.analyze.call_count == 1
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='Cron wrapper is Unix-specific')
 def test_cron_wrapper_requires_absolute_paths(tmp_path):
     import os
     import subprocess
@@ -510,3 +514,16 @@ def test_pipeline_busy_reports_incomplete_without_external_calls(store, app):
     assert not run_pipeline(store, Settings(apps=[app]), fetch=fetch, provider=provider)
     fetch.assert_not_called()
     provider.analyze.assert_not_called()
+
+
+def test_resend_uses_existing_history_and_never_resends_confirmed_report(store, app, email_config, monkeypatch):
+    config = email_config.model_copy(update={'provider': 'resend', 'host': None})
+    rid = report(store, app)
+    monkeypatch.setenv('RESEND_API_KEY', 'synthetic-resend-key')
+    post = Mock(return_value=Mock(status_code=200, json=Mock(return_value={'id': 'synthetic-id'})))
+    monkeypatch.setattr('playstoregetreviews.notifications.resend.requests.post', post)
+    reports, deliveries = ReportRepository(store), DeliveryRepository(store)
+    assert send_report(reports, deliveries, rid, app, config) == 'sent'
+    assert send_report(reports, deliveries, rid, app, config) == 'sent'
+    assert post.call_count == 1
+    assert len(post.call_args.kwargs['json']['attachments']) == 2

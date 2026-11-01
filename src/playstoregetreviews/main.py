@@ -47,7 +47,9 @@ def notify(review: dict, package: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['collect', 'export', 'migrate', 'analyze', 'analysis-show', 'analysis-recover', 'report', 'email-preview', 'send-email', 'email-status', 'email-resolve', 'run', 'run-recover'])
+    parser.add_argument('command', choices=['start', 'collect', 'export', 'migrate', 'analyze', 'analysis-show', 'analysis-recover', 'report', 'email-preview', 'send-email', 'email-status', 'email-resolve', 'run', 'run-recover'])
+    parser.add_argument('query', nargs='?', help='Nom ou lien Google Play pour start')
+    parser.add_argument('--email', action='store_true', help='Configurer Resend dans start')
     parser.add_argument('--config')
     parser.add_argument('--source', type=Path)
     parser.add_argument('--analysis-id', type=int)
@@ -57,13 +59,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--force', action='store_true', help='Ignorer la cadence du pipeline, sans contourner les réservations')
     parser.add_argument('--package', help='Application à analyser ou propriétaire de la base historique')
     args = parser.parse_args(argv)
+    if args.query is not None and args.command != 'start':
+        parser.error('Le nom d’application est uniquement utilisé avec start')
     handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
+    if args.command == 'start':
+        from .quickstart import PROGRESS, ProgressFormatter
+        handler.setFormatter(ProgressFormatter())
+        handler.addFilter(lambda record: record.getMessage() in PROGRESS)
+    else:
+        handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
     logger = logging.getLogger(__name__)
     repository = None
     previous_timeout = socket.getdefaulttimeout()
     try:
+        if args.command == 'start':
+            from .quickstart import start
+            try:
+                return start(args.query, args.config, args.email)
+            except (EOFError, KeyboardInterrupt):
+                print('Opération annulée.')
+                return 130
+            except ValueError as exc:
+                print(str(exc))
+                return 1
         settings = load_settings(args.config)
         if args.command == 'migrate':
             if not args.source or not args.package:

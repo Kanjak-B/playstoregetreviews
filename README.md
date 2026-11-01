@@ -1,6 +1,19 @@
-# PlayStoreGetReviews V2.0
+# PlayStoreGetReviews V2.1
 
-Collect public Google Play reviews, track negative and modified reviews in SQLite, analyze them with OpenAI, and generate JSON/HTML reports for authorized email recipients. This implements the five phases in [doc/specifications.md](doc/specifications.md). Emails are disabled by default. There is no web interface, mass mailing, or multi-tenant service.
+Collect public Google Play reviews, track negative and modified reviews in SQLite, analyze them with OpenAI, and generate JSON/HTML reports for authorized email recipients through Resend or SMTP. This implements the five phases in [doc/specifications.md](doc/specifications.md). Emails are disabled by default. There is no web interface, mass mailing, or multi-tenant service.
+
+## Start with an application name (Windows / Git Bash)
+
+```bash
+py -3 -m venv .venv
+source .venv/Scripts/activate
+python -m pip install -e '.[llm]'
+playstoregetreviews start "WhatsApp"
+```
+
+The guided command finds the package ID, asks you to choose if results are ambiguous, and runs collection, analysis, and reporting. First-use setup asks for an OpenAI key and offers Resend email; subsequent runs reuse the private local settings. Use `--email` to configure Resend later, or paste an exact Play Store application URL instead of its name. SMTP and Cron are not required for this route.
+
+See the **[Windows + Git Bash + Resend guide](doc/windows-git-bash.md)** for the short setup, Resend sender restrictions, and optional Windows Task Scheduler settings.
 
 ## Install and test
 
@@ -17,15 +30,15 @@ python -m pytest -q
 python -m pip check
 ```
 
-The test suite uses synthetic data, mocked external APIs, and a verified local SMTP TLS server. It never sends mail to external recipients. The CI workflow targets Python 3.11–3.13. The local TLS integration test requires OpenSSL and permission to open a loopback socket. Docker is optional and is not required or included.
+The test suite uses synthetic data, mocked external APIs, and a verified local SMTP TLS server. It never sends mail to external recipients. The CI workflow targets Python 3.11–3.13 on Linux and Windows. The local TLS integration test requires OpenSSL and permission to open a loopback socket. Docker is optional and is not required or included.
 
 ## Configure
 
-Edit `config.local.json` to select applications, languages, countries, negative-score thresholds, fetch limits, report paths, and schedules. `--config` takes precedence over the exported `PLAYSTORE_CONFIG` variable. Paths are relative to the working directory; use absolute paths for scheduled runs. `.env` is not loaded automatically.
+Edit `config.local.json` to select applications, languages, countries, negative-score thresholds, fetch limits, report paths, and schedules. `--config` takes precedence over the exported `PLAYSTORE_CONFIG` variable. Paths are relative to the working directory; use absolute paths for scheduled runs. `.env` is loaded automatically next to the selected JSON configuration, or from the working directory when none is selected. Existing environment variables take precedence.
 
 Without a configuration file, the legacy application (`com.visa.cemea.visapay`, French, country `cd`), `reviews.db`, and `exports/` paths are retained. The example uses `data/reviews.db` for a new V2 database. The old SQLite schema must be imported explicitly rather than overwritten.
 
-Store credentials outside Git. OpenAI uses `PLAYSTORE_LLM_API_KEY`, falling back to an existing `OPENAI_API_KEY`. SMTP uses `PLAYSTORE_SMTP_USERNAME` and `PLAYSTORE_SMTP_PASSWORD`. The default LLM is `gpt-4o-mini`; select a model supporting strict structured outputs and `max_completion_tokens`. The SDK is optional for collection and export, and is initialized lazily.
+Store credentials outside Git. OpenAI uses `PLAYSTORE_LLM_API_KEY`, falling back to an existing `OPENAI_API_KEY`. Resend uses `RESEND_API_KEY`; optional SMTP uses `PLAYSTORE_SMTP_USERNAME` and `PLAYSTORE_SMTP_PASSWORD`. The default LLM is `gpt-4o-mini`; select a model supporting strict structured outputs and `max_completion_tokens`. The SDK is optional for collection and export, and is initialized lazily.
 
 ## Commands
 
@@ -89,4 +102,4 @@ Application-level reservations prevent overlapping analyses and scheduled pipeli
 
 Databases, reports, exports, logs, previews, `.env`, and local configuration are ignored by Git. Historical data removed from tracking remains on disk and in earlier Git history; history is not automatically purged. Do not republish those private files.
 
-Production requires authorized HTTPS access to `play.google.com` and `api.openai.com`, LLM credentials, and an independently permitted SMTP TCP route plus credentials. Collection, paid LLM analysis, and actual external email delivery still require validation with those services. No active Cron job or real email recipient is installed automatically. The development validation uses synthetic data and local/mocked transports only.
+Production requires authorized HTTPS access to `play.google.com` and `api.openai.com`, LLM credentials, and either HTTPS access to `api.resend.com` plus a Resend key, or an independently permitted SMTP TCP route plus credentials. Collection, paid LLM analysis, and actual external email delivery still require validation with those services. No active Cron job or real email recipient is installed automatically. The development validation uses synthetic data and local/mocked transports only.

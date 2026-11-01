@@ -4,6 +4,8 @@ from email.parser import BytesParser
 from email.message import EmailMessage
 from pathlib import Path
 import socketserver
+import shutil
+import pytest
 import ssl
 import subprocess
 import threading
@@ -11,6 +13,7 @@ from playstoregetreviews.config import EmailConfig
 from playstoregetreviews.notifications.email import SMTPTransport
 
 
+@pytest.mark.skipif(shutil.which('openssl') is None, reason='Local TLS test requires OpenSSL')
 def test_actual_smtp_over_verified_tls(tmp_path, monkeypatch):
     cert, key = tmp_path/'certificate.pem', tmp_path/'key.pem'
     subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',

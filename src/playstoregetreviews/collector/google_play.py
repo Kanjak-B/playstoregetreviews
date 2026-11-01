@@ -4,7 +4,7 @@ import time
 import ssl
 import importlib
 from typing import Any, Callable
-from google_play_scraper import Sort
+from google_play_scraper import Sort, search as search_apps, app as app_details
 
 # La version épinglée modifie ce global à son import : rétablir TLS vérifié.
 ssl._create_default_https_context = ssl.create_default_context

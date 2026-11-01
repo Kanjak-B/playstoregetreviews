@@ -4,6 +4,7 @@ import os
 import re
 from typing import Literal
 from pathlib import Path
+from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -66,6 +67,7 @@ class AnalysisConfig(BaseModel):
 class EmailConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     enabled: bool = False
+    provider: Literal['smtp', 'resend'] = 'smtp'
     host: str | None = None
     port: int = Field(default=587, ge=1, le=65535)
     security: Literal['starttls', 'ssl'] = 'starttls'
@@ -89,8 +91,10 @@ class EmailConfig(BaseModel):
 
     @model_validator(mode='after')
     def configured(self):
-        if self.enabled and (not self.host or not self.from_address):
-            raise ValueError('SMTP activé : hôte et expéditeur requis')
+        if self.enabled and not self.from_address:
+            raise ValueError('Email activé : expéditeur requis')
+        if self.enabled and self.provider == 'smtp' and not self.host:
+            raise ValueError('SMTP activé : hôte requis')
         return self
 
 
@@ -116,4 +120,6 @@ class Settings(BaseModel):
 
 def load_settings(path: str | None = None) -> Settings:
     filename = path or os.getenv("PLAYSTORE_CONFIG")
+    env_path = Path(filename).resolve().parent / '.env' if filename else Path.cwd() / '.env'
+    load_dotenv(env_path, override=False)
     return Settings.model_validate(json.loads(Path(filename).read_text())) if filename else Settings()

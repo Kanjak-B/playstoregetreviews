@@ -1,4 +1,6 @@
-# V2.0 operations
+# V2 operations
+
+For the simple application-name workflow on Windows, start with the [Git Bash and Resend guide](windows-git-bash.md). SMTP and Cron below are optional alternatives.
 
 V2 implements all five phases of the specification. OpenAI is the first LLM provider; Gemini and Docker are optional and not required. Python 3.11+ is supported. External service credentials are not needed for automated tests.
 
@@ -17,7 +19,7 @@ python -m pip check
 
 Use **absolute paths** for `db_path`, `report_dir`, and `export_dir` in production. Relative paths resolve against the working directory, not the configuration file. Keep data directories private (mode 700) and configuration/secret files at mode 600. Databases and generated report files are protected with mode 600. Protect backups as well.
 
-JSON configuration and exported environment variables are the configuration sources; `.env` is not loaded automatically. Never put credentials in Git, command arguments, or logs. Back up SQLite while the application is stopped, or use SQLite's `backup` API rather than copying a database during writes without consistency guarantees.
+JSON configuration and exported environment variables are the configuration sources; `.env` is loaded automatically next to the selected JSON configuration (or from the working directory when none is selected), without overriding existing environment variables. Never put credentials in Git, command arguments, or logs. Back up SQLite while the application is stopped, or use SQLite's `backup` API rather than copying a database during writes without consistency guarantees.
 
 ## Manual workflow and migration
 
@@ -53,6 +55,7 @@ Sending is **disabled by default**. Merge this example into the private configur
 ```json
 {
   "email": {
+    "provider": "smtp",
     "enabled": true,
     "host": "smtp.example.com",
     "port": 587,
@@ -118,6 +121,6 @@ Adapt [run-scheduled.sh](../deploy/run-scheduled.sh) and [playstoregetreviews.cr
 
 ## Validation and external prerequisites
 
-Tests exercise the full workflow with synthetic data, mocked transports, and a local SMTP TLS server using a verified certificate: escaped reports, multiple batches, additive migration, retries, uncertain acceptance, reservations, consent, scheduling, and absence of repeated analysis/delivery. The local test needs OpenSSL and permission to open a loopback socket. GitHub Actions targets Python 3.11, 3.12, and 3.13 and builds the package; configuration alone does not establish remote CI success.
+Tests exercise the full workflow with synthetic data, mocked transports, and a local SMTP TLS server using a verified certificate: escaped reports, multiple batches, additive migration, retries, uncertain acceptance, reservations, consent, scheduling, and absence of repeated analysis/delivery. The local test needs OpenSSL and permission to open a loopback socket. GitHub Actions targets Linux and Windows with Python 3.11, 3.12, and 3.13 and builds the package; configuration alone does not establish remote CI success.
 
 Production still requires permitted HTTPS access to `play.google.com` and `api.openai.com`, LLM credentials/model access, and an authorized SMTP TCP route and credentials. Actual collection, paid LLM calls, and external email delivery require validation with those prerequisites. Do not activate scheduled delivery before configuration and verification. Reports, databases, logs, previews, and local settings are ignored by Git; old private history is not automatically purged.

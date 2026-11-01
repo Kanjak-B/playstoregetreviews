@@ -25,12 +25,9 @@
   },
   "report_dir": "reports",
   "email": {
+    "provider": "resend",
     "enabled": false,
-    "host": null,
-    "port": 587,
-    "security": "starttls",
     "from_address": null,
-    "auth_required": true,
     "timeout_seconds": 30,
     "max_attempts": 3,
     "max_deliveries_per_run": 10

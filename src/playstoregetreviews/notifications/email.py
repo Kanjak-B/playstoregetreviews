@@ -139,7 +139,12 @@ def send_report(reports: ReportRepository, deliveries: DeliveryRepository, repor
         return existing_status or 'skipped'
     # Prepare and validate before reserving a delivery, without network access.
     build_message(document, app, config, '<validation@example.invalid>')
-    transport = transport or SMTPTransport(config)
+    if transport is None:
+        if config.provider == 'resend':
+            from .resend import ResendTransport
+            transport = ResendTransport(config)
+        else:
+            transport = SMTPTransport(config)
     transport.validate()
     reservation = deliveries.reserve(report_id, recipient, config.from_address, config.max_attempts)
     if reservation is None:
@@ -151,12 +156,13 @@ def send_report(reports: ReportRepository, deliveries: DeliveryRepository, repor
         transport.send(message)
     except DeliveryError as exc:
         status = 'unknown' if exc.uncertain else 'failed'
-        code = 'smtp_acceptance_unknown' if exc.uncertain else 'smtp_failed'
+        prefix = config.provider
+        code = f'{prefix}_acceptance_unknown' if exc.uncertain else f'{prefix}_failed'
         deliveries.finish(delivery_id, status, code)
         logger.error('email_failed', extra={'report_id': report_id, 'delivery_id': delivery_id})
         return status
     except Exception:
-        deliveries.finish(delivery_id, 'unknown', 'smtp_acceptance_unknown')
+        deliveries.finish(delivery_id, 'unknown', f'{config.provider}_acceptance_unknown')
         logger.error('email_unknown', extra={'report_id': report_id, 'delivery_id': delivery_id})
         return 'unknown'
     deliveries.finish(delivery_id, 'sent')

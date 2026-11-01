@@ -1,4 +1,4 @@
-"""Phases 3–5 : rapports, messages et pipeline avec données synthétiques."""
+"""Phases 3–5: reports, messages, and the pipeline using synthetic data."""
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path

@@ -1,25 +1,25 @@
-# Exploitation V2.0
+# V2.0 operations
 
-La V2 réalise les cinq phases du cahier des charges. OpenAI est le premier fournisseur LLM ; Gemini et Docker restent optionnels et ne sont pas nécessaires. Python 3.11+ est requis. Les tests n'utilisent ni secrets ni destinataires réels.
+V2 implements all five phases of the specification. OpenAI is the first LLM provider; Gemini and Docker are optional and not required. Python 3.11+ is supported. External service credentials are not needed for automated tests.
 
-## Installation
+## Installation and private storage
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[llm]'
 cp config.example.json config.local.json
-# Tests de développement :
+# Development verification:
 python -m pip install -e '.[test,llm]'
 python -m pytest -q
 python -m pip check
 ```
 
-Utiliser des **chemins absolus** pour `db_path`, `report_dir` et `export_dir` en production. Les chemins relatifs restent relatifs au répertoire courant, pas au fichier JSON. Mettre les données dans un dossier privé (mode 700), les fichiers de configuration et secrets en mode 600. Les nouvelles bases et sorties de rapport sont créées en mode 600. Les bases existantes sont protégées lors de l'ouverture ; conserver leurs sauvegardes également privées.
+Use **absolute paths** for `db_path`, `report_dir`, and `export_dir` in production. Relative paths resolve against the working directory, not the configuration file. Keep data directories private (mode 700) and configuration/secret files at mode 600. Databases and generated report files are protected with mode 600. Protect backups as well.
 
-La configuration JSON et les variables exportées sont les sources de configuration ; `.env` n'est pas chargé automatiquement. Les clés et identifiants ne doivent jamais figurer dans Git, un argument de commande ou un journal. Sauvegarder SQLite à l'arrêt de l'application ou avec l'API SQLite `backup` ; ne pas copier un fichier en cours d'écriture sans garantie de cohérence.
+JSON configuration and exported environment variables are the configuration sources; `.env` is not loaded automatically. Never put credentials in Git, command arguments, or logs. Back up SQLite while the application is stopped, or use SQLite's `backup` API rather than copying a database during writes without consistency guarantees.
 
-## Commandes manuelles
+## Manual workflow and migration
 
 ```sh
 playstoregetreviews collect --config config.local.json
@@ -32,21 +32,23 @@ playstoregetreviews email-status --config config.local.json --delivery-id 1
 playstoregetreviews export --config config.local.json
 ```
 
-`--package` sélectionne une application configurée pour `analyze`, `report` et `run`. Les scripts historiques restent disponibles après installation. L'import de l'ancienne base exige `migrate --source ... --package ...` avec une destination inexistante. Sauvegarder avant toute migration. L'ouverture d'une base V2 ajoute automatiquement les nouvelles tables et les colonnes nullables `analysis_reviews.review_date` et `applications.recipient_email`, sans supprimer les données.
+Use `--package` to select one configured application for `analyze`, `report`, and `run`. Legacy scripts remain available after installation. Import the legacy database with `migrate --source ... --package ...`, with a nonexistent destination configured in JSON. The original database is not modified. Back up before migration.
 
-## Phase 3 : rapports
+Opening an existing V2 database adds new tables and nullable `analysis_reviews.review_date` and `applications.recipient_email` columns without deleting rows. Migration is additive and repeatable. Old analysis snapshot dates remain unknown rather than being reconstructed from potentially modified reviews.
 
-`report` consomme les analyses terminées non encore rattachées à un rapport. Il génère `report-ID.json` et `report-ID.html`, conserve le document dans SQLite et permet de le régénérer par identifiant. L'écriture est atomique par fichier ; si l'un des deux fichiers échoue, le document reste en base et la prochaine commande reprend les rendus incomplets.
+## Phase 3: reports
 
-Chaque rapport comporte application, génération et période d'analyse en UTC, période des avis, nombre de sources distinctes, synthèses, priorités, recommandations, confiance, limites, modèles et consommation connue. Les références et hashes assurent la traçabilité sans réexporter le contenu brut des avis. Les anciennes analyses n'avaient pas de copie des dates sources : leur période peut être inconnue/partielle, ce que signale le rapport. Les nouvelles analyses enregistrent ces dates avant l'appel LLM.
+`report` consumes completed analyses not yet linked to a report. It writes `report-ID.json` and `report-ID.html`, stores the immutable document in SQLite, and supports regeneration by ID. Each file is replaced atomically. If either write fails, the document stays in SQLite and incomplete rendering is retried by the next command.
 
-Les rapports portent sur les nouveaux lots disponibles depuis le rapport précédent. Plusieurs versions d'un avis dans ces lots ne sont comptées qu'une fois, pour la version la plus récente. Les problèmes aux titres et catégories identiques sont regroupés ; leurs fréquences sont des nombres de références distinctes, pas des estimations du modèle. Une fusion sémantique de titres différents n'est pas présumée. Les coûts incluent les analyses consommées, y compris les anciennes versions supersédées dans le rapport ; un usage ou tarif inconnu donne `null`.
+A report includes application, generation/analysis periods in UTC, review period, distinct source count, summaries, priorities, recommendations, confidence, limitations, models, and known usage. Source references and hashes provide traceability without re-exporting raw review text. Old analyses can have unknown/partial review periods, explicitly noted in the document. New analyses snapshot review dates before their LLM call.
 
-L'empreinte des versions sources par application supprime les rapports identiques. Un retour à un ensemble de versions déjà rapporté réutilise le rapport initial sans nouveau message. Les rendus HTML utilisent Jinja2 avec échappement automatique ; aucun texte du modèle n'est considéré comme du HTML sûr. Les templates sont inclus dans le paquet installable et ne dépendent pas du répertoire courant.
+Reports cover new batches since the previous report. Multiple versions of a review in those batches count once, using the latest version. Issues with matching titles and categories are merged, counting distinct references. Different titles are not assumed to describe the same issue. Costs cover all consumed analyses, including superseded versions; unknown usage or prices remain `null`.
 
-## Phase 4 : emails
+A per-application source-version fingerprint suppresses identical reports. Returning to an already-reported set of versions reuses the initial report rather than producing another email. Jinja2 autoescaping protects HTML; no model text is marked safe. Templates ship inside the package and work independently of the current directory.
 
-L'envoi est **désactivé par défaut**. Pour l'activer, configurer :
+## Phase 4: SMTP email
+
+Sending is **disabled by default**. Merge this example into the private configuration:
 
 ```json
 {
@@ -70,48 +72,52 @@ L'envoi est **désactivé par défaut**. Pour l'activer, configurer :
 }
 ```
 
-Cet extrait doit être fusionné avec les autres réglages nécessaires dans la configuration privée. `recipient_authorized: true` signifie que l'opérateur a obtenu le consentement du destinataire. Aucun destinataire n'est issu du LLM et aucune option `--to` ne permet de contourner la configuration. Les adresses d'en-tête simples sont validées ; les adresses avec nom d'affichage ou retour à la ligne sont refusées.
+`recipient_authorized: true` records the operator's confirmation of recipient consent. Recipients never come from the LLM; there is no arbitrary `--to` override. Simple mailbox addresses are validated; display names and header newlines are rejected.
 
-Fournir `PLAYSTORE_SMTP_USERNAME` et `PLAYSTORE_SMTP_PASSWORD` via un gestionnaire de secrets ou des exports privés. Ces valeurs doivent être accessibles au processus SMTP ; un jeton substitué uniquement par un proxy HTTPS ne suffit pas pour SMTP. `auth_required: false` convient uniquement à un relais chiffré explicitement autorisé sans authentification. Le transport accepte STARTTLS ou TLS implicite (`security: ssl`, usuellement port 465), avec validation des certificats et noms d'hôte ; aucun mode en clair n'est fourni. Autoriser également le routage TCP vers l'hôte/port SMTP, indépendamment des règles HTTPS. Le transport SMTP standard ne passe pas par `HTTPS_PROXY`.
+Provide `PLAYSTORE_SMTP_USERNAME` and `PLAYSTORE_SMTP_PASSWORD` using a secret manager or private exported variables. SMTP needs process-accessible credentials: a placeholder substituted only by an HTTPS proxy is insufficient. Use `auth_required: false` only for an explicitly authorized encrypted relay without authentication.
 
-`email-preview` écrit un `.eml` multipart et un aperçu HTML local sans connexion ni réservation d'envoi. La synthèse email présente les principales recommandations, avec le rapport complet JSON et HTML en pièces jointes. L'aperçu requiert un expéditeur et un destinataire autorisé, mais ni identifiants ni SMTP activé. Vérifier cet aperçu avant l'envoi réel.
+The transport supports STARTTLS or implicit TLS (`security: ssl`, typically port 465), with certificate and hostname validation; plaintext is not supported. Permit the SMTP host/port through the appropriate TCP route independently of HTTPS policies. The standard SMTP transport does not use `HTTPS_PROXY`.
 
-Un seul envoi par couple rapport/destinataire est réservé en transaction. Son `Message-ID` reste stable lors des reprises. Un envoi réussi n'est pas répété. Les échecs certains avant acceptation (`failed`) peuvent être retentés lors d'une nouvelle commande ou du prochain pipeline, avec un maximum persistant de `max_attempts`. Les rapports restent conservés après un échec. Les identifiants et messages d'erreur externes bruts ne sont jamais journalisés.
+`email-preview` writes a multipart `.eml` and HTML preview without connecting or reserving delivery. The email summarizes key recommendations and attaches the complete JSON/HTML report. Previewing requires a sender and an authorized recipient, but not credentials or enabled SMTP. Inspect the preview before sending real messages.
 
-**SMTP ne permet pas de garantir exactement une livraison dans tous les cas.** Une déconnexion ou un timeout pendant l'envoi peut survenir après acceptation ; cet état devient `unknown` et bloque toute reprise automatique. Une interruption brutale peut laisser `sending`, également bloqué. Après arrêt confirmé du processus et vérification des journaux du fournisseur :
+A transaction reserves each report/recipient pair. Retries use a stable `Message-ID`. Confirmed deliveries are not resent. Definite pre-acceptance failures (`failed`) can be retried by the next command or pipeline, up to a persistent `max_attempts`. Exhausted deliveries do not block eligible newer reports. Reports remain available after failure, and credentials/raw external error messages are never logged.
+
+**SMTP cannot guarantee exactly-once delivery in every failure scenario.** A timeout or disconnect during submission may follow acceptance; this becomes `unknown` and blocks automatic retry. A process crash can leave `sending`, which is also blocked. Stop the owning process and check provider logs before resolving:
 
 ```sh
-# Le serveur confirme l'acceptation :
+# The server confirms acceptance:
 playstoregetreviews email-resolve --config config.local.json --delivery-id 1 --outcome sent
-# Le serveur confirme que le message n'a PAS été accepté :
+# The server confirms the message was NOT accepted:
 playstoregetreviews email-resolve --config config.local.json --delivery-id 1 --outcome retry
 ```
 
-Ne pas autoriser `retry` sans cette confirmation : le même `Message-ID` n'oblige pas tous les serveurs à dédupliquer. Les états d'envoi et adresses retournés par `email-status` sont privés. Aucun email vide n'est créé quand il n'y a pas d'analyse réussie avec des sources.
+Do not select `retry` without that confirmation: a stable `Message-ID` does not require every server to deduplicate. Delivery history and addresses returned by `email-status` are private. No empty report email is generated without a successful analysis and source reviews.
 
-## Phase 5 : pipeline et Cron
+## Phase 5: pipeline and Cron
 
 ```sh
 playstoregetreviews run --config /etc/playstoregetreviews/config.json
 playstoregetreviews run --config /etc/playstoregetreviews/config.json --package com.example.app --force
 ```
 
-Le pipeline respecte `interval_minutes` par application (1440 par défaut) après un succès. Il collecte, analyse uniquement les avis en attente, génère les rapports et envoie ceux non déjà transmis si l'envoi est activé et le destinataire autorisé. Sans autorisation d'email, il produit seulement les rapports. Les limites de lots LLM et d'envois sont partagées entre applications de la commande. Un backlog ou un échec laisse le pipeline incomplet (code non nul) et peut être repris sans refaire les analyses réussies ni renvoyer les messages confirmés. Les avis vides/trop longs restent comptés comme ignorés par l'analyse et ne causent pas de boucle payante. `--force` ignore la cadence, jamais la déduplication ni les réservations.
+After success, the pipeline respects each application's `interval_minutes` (default 1440). It collects reviews, analyzes pending versions, renders reports, and sends unsent reports when globally enabled and authorized for that application. Otherwise it only generates reports. LLM batch and delivery limits are shared across the command's applications.
 
-Une réservation SQLite par application évite deux pipelines simultanés. Les commandes manuelles d'analyse et d'envoi conservent leurs propres réservations. Une interruption peut laisser des réservations actives ; après arrêt confirmé du processus :
+A backlog or failure leaves the run incomplete (nonzero exit status) and retryable without repeating successful analyses or confirmed messages. Empty/oversized review texts remain skipped without triggering a paid retry loop. `--force` bypasses cadence, never deduplication or reservations. A busy application is reported as incomplete without making external calls.
+
+SQLite reservations prevent overlapping pipelines for one application. Manual analysis and delivery retain their own reservations. After a crash, stop the owning process before recovery:
 
 ```sh
 playstoregetreviews run-recover --config config.local.json --package com.example.app
-# Seulement si une analyse est aussi restée active :
+# Only if an analysis is also left active:
 playstoregetreviews analysis-recover --config config.local.json --analysis-id 1
 ```
 
-Ces commandes ne réinitialisent pas les envois incertains. Les résoudre séparément comme décrit ci-dessus.
+These commands do not reset uncertain emails. Resolve those separately as described above.
 
-Pour Cron, copier et adapter [run-scheduled.sh](../deploy/run-scheduled.sh) et [playstoregetreviews.cron.example](../deploy/playstoregetreviews.cron.example). Le fichier `runtime.env`, hors du dépôt et en mode 600, exporte les chemins absolus `PLAYSTORE_BIN`, `PLAYSTORE_CONFIG` et les secrets requis. Le wrapper est un script shell : son fichier d'environnement est du code de confiance, pas un fichier fourni par un tiers. Créer le dossier de journal en mode 700 et prévoir une rotation des logs. Installer l'entrée adaptée avec `crontab -e` sur la machine qui exécute le projet. Aucune tâche Cron active n'est installée automatiquement dans l'environnement de développement.
+Adapt [run-scheduled.sh](../deploy/run-scheduled.sh) and [playstoregetreviews.cron.example](../deploy/playstoregetreviews.cron.example). Keep `runtime.env` outside Git with mode 600. It exports absolute `PLAYSTORE_BIN`/`PLAYSTORE_CONFIG` paths and required secrets. The wrapper sources this file as trusted shell code; never use a file supplied by an untrusted party. Create a private log directory (mode 700) and configure log rotation. Install the adapted entry with `crontab -e` on the execution host. No active Cron job is installed automatically in the development environment.
 
-## Vérification et limites de déploiement
+## Validation and external prerequisites
 
-Les tests exécutent le cycle complet avec données synthétiques, transports simulés et un serveur SMTP TLS local à certificat vérifié : reports échappés, multi-lots, migration additive, reprises, acceptations incertaines, réservations, consentement, planification et absence de réanalyse/renvoi. Le workflow GitHub Actions les lance sur Python 3.11, 3.12 et 3.13 et construit le paquet. Cela ne remplace pas une validation des services externes avec les accès de production.
+Tests exercise the full workflow with synthetic data, mocked transports, and a local SMTP TLS server using a verified certificate: escaped reports, multiple batches, additive migration, retries, uncertain acceptance, reservations, consent, scheduling, and absence of repeated analysis/delivery. The local test needs OpenSSL and permission to open a loopback socket. GitHub Actions targets Python 3.11, 3.12, and 3.13 and builds the package; configuration alone does not establish remote CI success.
 
-Dans un environnement cloud restreint, prévoir HTTPS `play.google.com` et `api.openai.com`, les secrets LLM, et un accès TCP SMTP autorisé. Les tests réels de collecte, d'analyse payante et d'envoi nécessitent ces prérequis. Ne pas activer la planification d'envois avant leur configuration et vérification. Les rapports, bases, logs, aperçus et configurations locales sont exclus du suivi Git ; l'ancien historique privé n'est pas purgé automatiquement.
+Production still requires permitted HTTPS access to `play.google.com` and `api.openai.com`, LLM credentials/model access, and an authorized SMTP TCP route and credentials. Actual collection, paid LLM calls, and external email delivery require validation with those prerequisites. Do not activate scheduled delivery before configuration and verification. Reports, databases, logs, previews, and local settings are ignored by Git; old private history is not automatically purged.

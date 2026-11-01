@@ -1,4 +1,4 @@
-"""Rendu échappé et sauvegardes atomiques de fichiers privés."""
+"""Escaped rendering and atomic writes of private files."""
 import os
 from pathlib import Path
 import tempfile

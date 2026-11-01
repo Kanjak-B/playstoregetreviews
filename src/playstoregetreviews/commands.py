@@ -1,4 +1,4 @@
-"""Commandes des rapports et notifications, isolées des entrées historiques."""
+"""Report and notification commands, separate from legacy entry points."""
 import json
 import logging
 from .config import Settings

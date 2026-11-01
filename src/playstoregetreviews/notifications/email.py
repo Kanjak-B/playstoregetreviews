@@ -1,4 +1,4 @@
-"""SMTP chiffré, prévisualisation sans réseau et classification des échecs."""
+"""Encrypted SMTP, offline previews, and failure classification."""
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import format_datetime
@@ -65,14 +65,14 @@ class SMTPTransport:
             sending = True
             refused = connection.send_message(message)
             if refused:
-                # Un seul destinataire autorisé ; aucun refus partiel n'est attendu.
+                # There is only one authorized recipient; partial refusal is not expected.
                 raise DeliveryError(False, 'smtp_recipient_refused')
         except DeliveryError:
             raise
         except (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError):
             raise DeliveryError(False, 'smtp_rejected') from None
         except Exception:
-            # Un timeout/débranchement pendant DATA peut suivre une acceptation.
+            # A timeout or disconnect during DATA may follow acceptance.
             raise DeliveryError(sending, 'smtp_acceptance_unknown' if sending else 'smtp_connection_failed') from None
         finally:
             if connection is not None:
@@ -137,7 +137,7 @@ def send_report(reports: ReportRepository, deliveries: DeliveryRepository, repor
     existing_status = deliveries.status(report_id, recipient)
     if not deliveries.can_attempt(report_id, recipient, config.max_attempts):
         return existing_status or 'skipped'
-    # Préparer et valider avant toute réservation, même si aucun réseau n'est utilisé.
+    # Prepare and validate before reserving a delivery, without network access.
     build_message(document, app, config, '<validation@example.invalid>')
     transport = transport or SMTPTransport(config)
     transport.validate()

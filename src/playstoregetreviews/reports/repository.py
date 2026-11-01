@@ -1,4 +1,4 @@
-"""Rapports immuables, déduplication par versions sources et historisation."""
+"""Immutable reports, source-version deduplication, and history."""
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -35,7 +35,7 @@ class ReportRepository:
             if not analyses:
                 return None
             results = {a.id: AnalysisResult.model_validate_json(a.result_json) for a in analyses}
-            # Conserver uniquement la version la plus récente d'un avis dans ce rapport.
+            # Keep only the most recent version of each review in this report.
             selected: dict[str, tuple[int, AnalysisReview]] = {}
             refs: dict[int, list[tuple[str, AnalysisReview]]] = {}
             for analysis in analyses:

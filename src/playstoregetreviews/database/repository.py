@@ -40,7 +40,7 @@ class Repository:
                 self.engine.dispose()
                 raise ValueError("Base historique : utiliser migrate avec --package explicite")
         Base.metadata.create_all(self.engine)
-        # Migration additive de V2 phase 2 : les anciennes dates restent inconnues.
+        # Additive migration from V2 phase 2: historical snapshot dates remain unknown.
         with self.engine.begin() as connection:
             connection.execute(text('BEGIN IMMEDIATE'))
             columns = {c['name'] for c in inspect(connection).get_columns('analysis_reviews')}

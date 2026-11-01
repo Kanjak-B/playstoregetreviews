@@ -1,4 +1,4 @@
-"""Pipeline incrémental, cadence par application et réservations persistantes."""
+"""Incremental pipeline, per-application cadence, and persistent reservations."""
 from datetime import datetime, timedelta, timezone
 import logging
 import socket
@@ -123,7 +123,7 @@ def run_pipeline(repository: Repository, settings: Settings, package: str | None
                             mail_failed = True
                             continue
                         if remaining_emails == 0:
-                            # Ne pas repousser un backlog d'envois à la prochaine période complète.
+                            # Retry a delivery backlog on the next tick rather than after a full interval.
                             mail_failed = True
                             break
                         remaining_emails -= 1
@@ -131,7 +131,7 @@ def run_pipeline(repository: Repository, settings: Settings, package: str | None
                         mail_failed = mail_failed or status != 'sent'
                 success = not analysis_failed and not mail_failed
             except Exception:
-                # Les exceptions distantes peuvent contenir avis, URLs ou identifiants.
+                # Remote exceptions may contain review content, URLs, or credentials.
                 logger.error('workflow_failed', extra={'package': app.package_name})
             finally:
                 workflows.finish(app.package_name, success)

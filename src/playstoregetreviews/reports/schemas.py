@@ -1,4 +1,4 @@
-"""Document de rapport indépendant des réponses du fournisseur."""
+"""Report document independent of provider responses."""
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from ..analysis.schemas import Issue

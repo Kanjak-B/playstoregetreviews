@@ -1,4 +1,4 @@
-"""Intégration SMTP TLS locale : aucun serveur ni destinataire externe."""
+"""Local SMTP TLS integration: no external server or recipient."""
 from email import policy
 from email.parser import BytesParser
 from email.message import EmailMessage

@@ -1,125 +1,92 @@
-# PlayStoreGetReviews — V2.0
+# PlayStoreGetReviews V2.0
 
-Collecte des avis publics Google Play, stockage SQLite par application et export CSV/JSON. Cette version réalise les **cinq phases** de [doc/specifications.md](doc/specifications.md). Analyse IA OpenAI, rapports JSON/HTML, emails SMTP et pipeline planifiable avec Cron sont disponibles. Les emails sont désactivés par défaut.
+Collect public Google Play reviews, track negative and modified reviews in SQLite, analyze them with OpenAI, and generate JSON/HTML reports for authorized email recipients. This implements the five phases in [doc/specifications.md](doc/specifications.md). Emails are disabled by default. There is no web interface, mass mailing, or multi-tenant service.
 
-## Installation et tests
+## Install and test
 
-Python 3.11 ou supérieur :
+Python 3.11 or newer is required:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e '.[test]'
-python -m pytest
+python -m pip install -e '.[llm]'
 cp config.example.json config.local.json
+# Development dependencies and tests:
+python -m pip install -e '.[test,llm]'
+python -m pytest -q
+python -m pip check
 ```
 
-Adapter le JSON : applications, pays/langue, seuil négatif et limite par application. `--config` prime sur la variable exportée `PLAYSTORE_CONFIG`. Les chemins de données sont relatifs au répertoire de lancement. Sans fichier de configuration, les anciens chemins `reviews.db` et `exports` et l'application historique sont conservés. `.env.example` documente les variables ; `.env` n'est pas chargé automatiquement.
+The test suite uses synthetic data, mocked external APIs, and a verified local SMTP TLS server. It never sends mail to external recipients. The CI workflow targets Python 3.11–3.13. The local TLS integration test requires OpenSSL and permission to open a loopback socket. Docker is optional and is not required or included.
+
+## Configure
+
+Edit `config.local.json` to select applications, languages, countries, negative-score thresholds, fetch limits, report paths, and schedules. `--config` takes precedence over the exported `PLAYSTORE_CONFIG` variable. Paths are relative to the working directory; use absolute paths for scheduled runs. `.env` is not loaded automatically.
+
+Without a configuration file, the legacy application (`com.visa.cemea.visapay`, French, country `cd`), `reviews.db`, and `exports/` paths are retained. The example uses `data/reviews.db` for a new V2 database. The old SQLite schema must be imported explicitly rather than overwritten.
+
+Store credentials outside Git. OpenAI uses `PLAYSTORE_LLM_API_KEY`, falling back to an existing `OPENAI_API_KEY`. SMTP uses `PLAYSTORE_SMTP_USERNAME` and `PLAYSTORE_SMTP_PASSWORD`. The default LLM is `gpt-4o-mini`; select a model supporting strict structured outputs and `max_completion_tokens`. The SDK is optional for collection and export, and is initialized lazily.
+
+## Commands
 
 ```sh
 playstoregetreviews collect --config config.local.json
+playstoregetreviews analyze --config config.local.json
+playstoregetreviews report --config config.local.json
+playstoregetreviews email-preview --config config.local.json --report-id 1
+# Only after configuring SMTP and authorizing the recipient:
+playstoregetreviews send-email --config config.local.json --report-id 1
+# Complete pipeline respecting each application's interval:
+playstoregetreviews run --config config.local.json
 playstoregetreviews export --config config.local.json
-# Entrées historiques conservées après installation :
-python collect_negative_reviews.py --config config.local.json
-python export_reviews.py --config config.local.json
 ```
 
-Le JSON peut aussi définir `retries` (2), `pause_seconds` (0.6) et `timeout_seconds` (20). La collecte parcourt les pages jusqu'à la limite, reprend les erreurs puis renvoie un code non nul en cas d'échec. Une application en échec n'empêche pas les autres de s'exécuter. Les avis déjà synchronisés avant une erreur de validation restent enregistrés ; un nouveau passage est idempotent. Les logs JSON donnent les compteurs `new`, `modified`, `unchanged`, `ignored`, sans contenu d'avis ni erreurs externes. L'adaptateur réutilise le parseur interne de la version épinglée du scraper pour laisser remonter les erreurs (sa fonction publique les masque). Il rétablit aussi la vérification TLS désactivée par cette dépendance à l'import. Une montée de version exige de revalider cet adaptateur. Une collecte vide peut être légitime ; elle ne prouve pas à elle seule la présence d'avis.
+`--package` selects one configured application for `analyze`, `report`, or `run`. The original `collect_negative_reviews.py` and `export_reviews.py` entry points remain available after installation, including `--config` support. Exports retain the `score,content` CSV columns and equivalent JSON objects, with distinct timestamped filenames. A combined export includes all stored applications.
 
-## Stockage et migration
+The **[operations guide](doc/operations.md)** covers migration, report generation, SMTP settings and consent, delivery history and recovery, quotas, scheduling, backups, and deployment requirements. Ready-to-adapt Cron files are in [`deploy/`](deploy/).
 
-SQLAlchemy gère SQLite. La clé `(application_id, review_id)` évite les doublons. Un hash de la note, du contenu et de la date détecte les modifications. Première collecte conservée, dernière synchronisation actualisée, état d'analyse remis à `pending` après modification. Les avis nouveaux au-dessus du seuil sont ignorés ; les avis déjà connus restent actualisés même si leur note remonte. Les avis disparus de la collecte ne sont pas supprimés.
+## Collection and storage
 
-Une base historique n'identifie pas son application : la migration exige donc une attribution explicite. Sauvegarder les données et choisir une **destination inexistante** dans la configuration. La source reste intacte :
+The collector paginates up to each application's limit, applies timeouts and bounded retries, and logs JSON counters without review contents or raw external errors. Failure returns a nonzero exit status without preventing independent applications from being processed. Reviews saved before a validation error remain stored; retrying is idempotent.
+
+The pinned scraper's public API swallows some network errors and disables the default TLS verification context at import. Our adapter restores verified TLS and reuses its internal parser so errors remain visible. Revalidate that adapter when upgrading the scraper. An empty response can legitimately contain no reviews; it is not proof of external-service readiness.
+
+SQLAlchemy/SQLite enforces uniqueness by application and review ID. A hash of score, content, and review date detects changes. First-seen timestamps are preserved, last-seen timestamps are updated, and modified reviews return to `pending` analysis status. Existing reviews are updated even if their score becomes positive. Newly encountered positive reviews are ignored; reviews missing from a later fetch are not deleted.
+
+To import a legacy database, back it up, configure a **nonexistent destination**, and explicitly identify the owning application:
 
 ```sh
 playstoregetreviews migrate --source reviews.db --package com.visa.cemea.visapay --config config.local.json
 ```
 
-Les exports conservent les colonnes `score,content`, avec des noms horodatés distincts, et regroupent les applications stockées. Le webhook historique reste facultatif via `REVIEW_WEBHOOK_URL` ; il reçoit uniquement les nouveaux avis négatifs. Son échec est journalisé sans exposer l'URL ; il n'y a pas de reprise durable de notification en phase 1.
+The source remains untouched. The optional legacy webhook uses `REVIEW_WEBHOOK_URL` only for new negative reviews; failures are logged without URLs. Durable webhook delivery retries are not implemented.
 
-## Données et accès externes
+## Analysis and reports
 
-Aucun secret n'est requis pour les avis publics. Autoriser HTTPS vers `play.google.com`, et vers le domaine du webhook uniquement si utilisé. Vérifier les conditions applicables de Google Play et les limites de collecte avant exécution ; aucune validation juridique n'est présumée.
+Only pending reviews at or below the configured score threshold are analyzed. Whitespace and control characters are normalized; recognizable email addresses, phone numbers, and URLs are masked. Author names, real review IDs, and review dates are not sent to the LLM. This is **best-effort masking**, not guaranteed anonymization of names, addresses, or other personal information in free text. Review the data and applicable Google Play terms before collection or external analysis.
 
-Bases, exports, rapports, `.env` et configuration locale sont exclus de Git. Les données historiques déjà présentes dans Git sont retirées du suivi sur cette branche tout en restant sur disque. Cela n'efface pas l'historique Git : ne pas republier ces anciennes données et traiter séparément toute suppression d'historique nécessaire. Ne pas joindre d'avis privés aux logs, tests ou demandes de revue. Les tests utilisent exclusivement des données synthétiques et ne contactent aucun service externe.
+Identical prepared texts with the same score are grouped within a batch, preserving opaque references to every source. Empty or oversized texts are skipped without truncation. System instructions treat application metadata and review contents as untrusted data, request uncertainty and limitations, and distinguish reported symptoms from unverified technical causes. No tools or code execution are enabled. Human review is still necessary.
 
+Pydantic rejects extra properties, invalid priorities/categories, unknown or repeated references, refusals, and truncated responses. Counts are calculated locally from distinct source references, including all members of a deduplicated group; they are never accepted from the model. Separate issues may overlap in their sources.
 
-## Phase 2 — Analyse IA OpenAI
-
-Installer le SDK optionnel (`test` l'inclut aussi pour les tests hors réseau) :
-
-```sh
-python -m pip install -e '.[llm]'
-playstoregetreviews analyze --config config.local.json
-# Facultatif : une seule application configurée
-playstoregetreviews analyze --config config.local.json --package com.visa.cemea.visapay
-```
-
-Fournir `PLAYSTORE_LLM_API_KEY` par les paramètres sécurisés de l'environnement ou un gestionnaire de secrets ; la variable existante `OPENAI_API_KEY` est reconnue en secours. Ne jamais coller une clé dans un fichier suivi ou une commande enregistrée. `.env` n'est pas chargé automatiquement. L'API HTTPS `api.openai.com` doit être autorisée. Les analyses impliquent l'envoi des textes préparés au fournisseur : ne les lancer que sur des données dont cet usage est autorisé.
-
-Le premier fournisseur est OpenAI, via le SDK épinglé et les sorties JSON structurées (`json_schema`, mode strict). Le modèle par défaut est `gpt-4o-mini`, configurable ; choisir un modèle compatible avec les sorties structurées et `max_completion_tokens`. Aucun appel n'est fait sans avis admissible. L'initialisation du SDK est différée : collecte et export fonctionnent sans la dépendance IA ni une clé.
-
-### Préparation et validation
-
-- Seuls les avis `pending` à note inférieure ou égale au seuil de l'application sont candidats. Les avis déjà analysés ne sont pas renvoyés après un simple changement de modèle ; un changement de note, texte ou date les remet en attente.
-- Les textes vides, sans lettres exploitables après masquage, ou trop longs pour un lot sont comptés `skipped` et restent en attente. Aucun texte n'est tronqué. Un dépassement du quota de lots est compté `deferred` ; relancer pour traiter la suite.
-- Les emails, numéros de téléphone et URLs sont masqués. Les noms d'auteur, identifiants réels et dates des avis ne sont pas envoyés. Ce masquage par règles n'est pas une garantie d'anonymisation : il ne détecte pas tous les noms, adresses ou autres informations personnelles en texte libre. Vérifier la pertinence des données avant envoi. Les noms/descriptions d'applications doivent aussi être non sensibles.
-- Les textes préparés identiques de même note sont regroupés dans chaque lot, avec des références opaques. Un problème cité pour un groupe est relié à toutes ses sources ; ses fréquences sont calculées localement, sans compter deux fois un avis. Des problèmes différents peuvent citer les mêmes avis ; leurs comptes ne s'additionnent pas nécessairement.
-- Le prompt traite avis et métadonnées comme des données non fiables, sans outils ni exécution. Il demande de distinguer symptômes signalés et causes supposées, avec confiance et limites. Cela ne garantit pas l'exactitude factuelle des conclusions du modèle : une revue humaine reste nécessaire.
-- Pydantic rejette propriétés supplémentaires, catégories/priorités invalides, références inventées ou répétées, refus et réponses tronquées. Les comptes ne sont pas demandés au modèle. Une sortie invalide n'est pas conservée ni marquée analysée ; la consommation connue reste enregistrée.
-
-### Limites et consommation
-
-La section `analysis` du JSON expose :
-
-| Paramètre | Défaut | Effet |
-|---|---|---|
-| `model` | `gpt-4o-mini` | Modèle OpenAI compatible |
-| `max_reviews_per_batch` | 40 | Nombre de sources par lot, doublons compris |
-| `max_batches_per_run` | 5 | Maximum de tentatives par commande, partagé entre applications |
-| `max_input_chars` | 24000 | Taille des messages par lot, métadonnées et consigne incluses |
-| `max_output_tokens` | 3000 | Limite de sortie de chaque appel |
-| `timeout_seconds` | 60 | Délai du SDK |
-| `input_cost_per_million` | non défini | Tarif USD / million de tokens d'entrée |
-| `output_cost_per_million` | non défini | Tarif USD / million de tokens de sortie |
-
-Le schéma JSON transmis au fournisseur ajoute un coût d'entrée aux messages. Ces limites bornent le volume envoyé et le nombre d'appels, sans constituer un plafond monétaire. Renseigner les **deux** tarifs courants du modèle pour obtenir un coût estimé à partir des tokens rapportés. Sans tarifs ou sans usage retourné, le coût reste `null`, jamais zéro par hypothèse. La facture fournisseur reste la référence ; remises et tarifs spéciaux ne sont pas calculés.
-
-Il n'y a pas de reprise automatique d'appel LLM payant. Après l'échec d'un lot, les suivants de cette application ne sont pas appelés. Une nouvelle commande pourra réessayer les avis encore en attente ; un timeout peut avoir été facturé même si son usage n'est pas connu.
-
-### Historique et reprise
-
-Les tables `analyses` et `analysis_reviews` sont ajoutées à la base V2 existante sans modifier les avis. L'historique conserve statut, modèle/fournisseur, version du prompt, dates, résultat validé, tokens, coût estimé et hash de chaque version d'avis. Les résultats restent locaux dans SQLite ; `report` génère les fichiers JSON/HTML (voir le guide d’exploitation). L'identifiant de l'analyse apparaît dans les logs JSON.
+SQLite stores validated results, source-version hashes, model/provider, prompt version, timestamps, and known token usage. Completed unchanged versions are not reanalyzed merely because the model setting changes. If a review changes during an LLM call, its new version remains pending. Invalid raw responses and remote exception messages are not stored. Known consumption is retained even when response validation fails.
 
 ```sh
 playstoregetreviews analysis-show --config config.local.json --analysis-id 1
 ```
 
-Cette commande affiche un résultat et ses références réelles : sa sortie est privée. Ne pas la publier. Les sorties invalides et erreurs externes brutes ne sont pas stockées ni journalisées.
+This output contains private references and must not be published. Generated reports include study periods, source counts, summaries, priorities, recommendations, confidence, limitations, and consumption metadata. HTML is escaped, source versions are deduplicated, and reports remain available after delivery failures.
 
-Une réservation SQLite bloque les analyses concurrentes d'une même application. Si un avis change pendant l'appel, le résultat reste associé à son ancien hash et la nouvelle version reste en attente. Après interruption brutale, la réservation reste `running` pour éviter une nouvelle dépense automatique. **Arrêter et vérifier l'arrêt du processus propriétaire** avant de libérer explicitement son identifiant :
+## Limits and reliability
 
-```sh
-playstoregetreviews analysis-recover --config config.local.json --analysis-id 1
-```
+The `analysis` configuration sets `model`, `max_reviews_per_batch` (40), `max_batches_per_run` (5), `max_input_chars` (24000), `max_output_tokens` (3000), and `timeout_seconds` (60). Batch attempts are shared across applications in a command. The JSON schema adds input overhead beyond message characters. These are volume limits, not a monetary spending cap.
 
-La réservation devient `failed`, avec consommation inconnue ; les avis restent en attente. Ne pas utiliser cette commande pendant qu'un appel est encore actif : cela permettrait un doublon payant. Une analyse terminée ne peut pas être réinitialisée par cette commande.
+Set both `input_cost_per_million` and `output_cost_per_million` to current USD prices to estimate costs from reported usage. Missing usage or prices remain `null`, never an assumed zero. Provider billing remains authoritative; discounts are not inferred. There are no automatic paid LLM retries. A timeout may have been billed even when its usage is unknown.
 
-### Validation de la phase 2
+Application-level reservations prevent overlapping analyses and scheduled pipelines. Interrupted reservations require explicit recovery after stopping their owner; see the operations guide. SMTP delivery also distinguishes confirmed failures from uncertain acceptance. An uncertain message is never automatically resent: SMTP cannot guarantee exactly-once delivery in all failure scenarios.
 
-`python -m pytest` exécute les tests de phases 1 et 2 avec des données synthétiques. Ils couvrent l'incrémentalité, la migration du schéma, les versions modifiées pendant l'appel, la réservation, les lots, la préparation des données, les réponses invalides/refusées/tronquées, les références et comptes, la consommation même en cas d'échec, les commandes et le véritable SDK avec un transport HTTP simulé. Aucun test n'envoie de données à OpenAI. Une validation réelle nécessite une clé, un accès au modèle et l'autorisation réseau ; elle n'a pas encore été effectuée dans cet environnement.
+## Privacy and deployment
 
+Databases, reports, exports, logs, previews, `.env`, and local configuration are ignored by Git. Historical data removed from tracking remains on disk and in earlier Git history; history is not automatically purged. Do not republish those private files.
 
-## Phases 3 à 5 — Rapports, emails et automatisation
-
-```sh
-playstoregetreviews report --config config.local.json
-playstoregetreviews email-preview --config config.local.json --report-id 1
-# Après configuration SMTP et autorisation explicite du destinataire :
-playstoregetreviews send-email --config config.local.json --report-id 1
-# Cycle complet respectant la cadence de chaque application :
-playstoregetreviews run --config config.local.json
-```
-
-Consulter le **[guide d’exploitation](doc/operations.md)** pour les paramètres SMTP, l’historique, les reprises sans renvoi automatique d’un email incertain, la migration et l’installation Cron. Les exemples de déploiement sont dans [`deploy/`](deploy/). La CI exécute les tests sur Python 3.11–3.13 ; aucun secret ni service externe n’est requis pour les tests. Docker reste facultatif et n’est pas ajouté.
+Production requires authorized HTTPS access to `play.google.com` and `api.openai.com`, LLM credentials, and an independently permitted SMTP TCP route plus credentials. Collection, paid LLM analysis, and actual external email delivery still require validation with those services. No active Cron job or real email recipient is installed automatically. The development validation uses synthetic data and local/mocked transports only.

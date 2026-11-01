@@ -1,4 +1,4 @@
-"""Réservations et statuts d'envoi, sans réessai des acceptations incertaines."""
+"""Delivery reservations and states; never retry uncertain acceptance automatically."""
 import hashlib
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
